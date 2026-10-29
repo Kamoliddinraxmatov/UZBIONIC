@@ -29,6 +29,15 @@ pytest
 python tools/demo_pipeline.py          # writes demo_pipeline.png
 ```
 
+Firmware core (PC build, no hardware needed):
+
+```bash
+cmake -S firmware -B build/firmware && cmake --build build/firmware
+ctest --test-dir build/firmware
+```
+
+`pytest` also builds the C core and checks it against the Python reference.
+
 ## Rules
 
 - No invented hardware specs, prices, clinical evidence or regulatory approvals. Unknown = `TBD`.
