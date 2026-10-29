@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from emg.pipeline import calibrate_thresholds, onsets, process, process_two_site
+from emg.pipeline import Mode, ModeController, calibrate_thresholds, onsets, process
 from simulation.signal import Burst, generate_emg
 
 FS = 2000.0
@@ -24,7 +24,7 @@ def host_run(tmp_path_factory):
     if cc is None:
         pytest.skip("no C compiler")
     exe = tmp_path_factory.mktemp("fw") / "host_run"
-    srcs = [FW / "tests/host_run.c", FW / "src/uzb_dsp.c", FW / "src/uzb_control.c"]
+    srcs = [FW / "tests/host_run.c", FW / "src/uzb_dsp.c", FW / "src/uzb_control.c", FW / "src/uzb_modes.c"]
     subprocess.run(
         [cc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I", str(FW / "include"), *map(str, srcs), "-o", str(exe), "-lm"],
         check=True,
@@ -39,12 +39,19 @@ def _thr(seed):
 
 
 def test_c_matches_python(host_run):
-    b = generate_emg(20.0, FS, [Burst(1.0, 1.0, 0.4), Burst(8.0, 2.0, 0.3), Burst(14.0, 1.0, 0.4)], mains_amp=0.05, seed=21)
-    t = generate_emg(20.0, FS, [Burst(4.0, 1.0, 0.4), Burst(11.0, 1.5, 0.25), Burst(14.0, 1.0, 0.4)], mains_amp=0.05, seed=22)
+    # biceps, triceps, a short co-contraction (mode switch), biceps again, a long co-contraction (no switch)
+    b = generate_emg(20.0, FS, [Burst(1.0, 1.0, 0.4), Burst(7.0, 0.4, 0.4), Burst(9.0, 1.0, 0.4), Burst(14.0, 2.0, 0.4)], mains_amp=0.05, seed=21)
+    t = generate_emg(20.0, FS, [Burst(4.0, 1.0, 0.4), Burst(7.0, 0.4, 0.4), Burst(14.0, 2.0, 0.4)], mains_amp=0.05, seed=22)
     close_x, open_x = b.x + 0.1 * t.x, t.x + 0.1 * b.x
     ct, ot = _thr(101), _thr(102)
 
-    ce, oe, ca, oa, cmds = process_two_site(close_x, open_x, FS, ct, ot)
+    _, ce, ca = process(close_x, FS, ct)
+    _, oe, oa = process(open_x, FS, ot)
+    ctl = ModeController(FS)
+    cmds, modes = [], []
+    for c, o in zip(ca, oa):
+        cmds.append(ctl.step(bool(c), bool(o)))
+        modes.append(list(Mode).index(ctl.mode))
 
     stdin = "\n".join(f"{c:.9g},{o:.9g}" for c, o in zip(close_x, open_x)) + "\n"
     out = subprocess.run(
@@ -52,7 +59,7 @@ def test_c_matches_python(host_run):
         input=stdin, capture_output=True, text=True, check=True,
     ).stdout
     fw = np.loadtxt(out.splitlines(), delimiter=",")
-    assert fw.shape == (len(close_x), 5)
+    assert fw.shape == (len(close_x), 6)
 
     # float32 firmware vs float64 reference
     np.testing.assert_allclose(fw[:, 0], ce, rtol=1e-3, atol=1e-4)
@@ -67,3 +74,7 @@ def test_c_matches_python(host_run):
 
     ref_cmd = np.array([CMD_CODE[c.value] for c in cmds])
     assert np.mean(fw[:, 4] != ref_cmd) < 1e-3
+    np.testing.assert_array_equal(fw[:, 5], modes)
+    # exactly one switch (POWER -> PINCH) from the short co-contraction; the long one does not switch
+    assert modes[0] == 0 and modes[-1] == 1
+    assert int(np.count_nonzero(np.diff(modes))) == 1
