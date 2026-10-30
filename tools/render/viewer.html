@@ -37,12 +37,35 @@ world.background = new THREE.CanvasTexture(bg);
 const pmrem = new THREE.PMREMGenerator(renderer);
 world.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
+// Surface-only perforation: a staggered dot pattern from the object-space position, projected on the
+// plane facing the surface normal. pitch and radius in mm; dots are darkened to `dark` of the colour.
+function perforated(mat, pitch, radius, dark) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vObjPos; varying vec3 vObjN;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvObjPos = position; vObjN = normal;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vObjPos; varying vec3 vObjN;")
+      .replace("#include <color_fragment>", `#include <color_fragment>
+        vec3 an = abs(normalize(vObjN));
+        vec2 uv = (an.z >= an.y && an.z >= an.x) ? vObjPos.xy : ((an.y >= an.x) ? vObjPos.xz : vObjPos.yz);
+        uv /= ${pitch.toFixed(3)};
+        uv.x += 0.5 * mod(floor(uv.y), 2.0);
+        float d = length(fract(uv) - 0.5) * ${pitch.toFixed(3)};
+        float hole = 1.0 - smoothstep(${(radius * pitch * 0.9).toFixed(3)}, ${(radius * pitch * 1.25).toFixed(3)}, d);
+        diffuseColor.rgb *= mix(1.0, ${dark.toFixed(3)}, hole);`);
+  };
+  return mat;
+}
+
 const MATERIALS = {
   shell: () => new THREE.MeshPhysicalMaterial({ color: 0xf4f5f6, roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.25 }),
   pad: () => new THREE.MeshStandardMaterial({ color: 0x8e9399, roughness: 0.85 }),
   joint: () => new THREE.MeshStandardMaterial({ color: 0x55595f, roughness: 0.3, metalness: 0.7 }),
   ring: () => new THREE.MeshStandardMaterial({ color: 0x7d8288, roughness: 0.5, metalness: 0.3 }),
-  mesh: () => new THREE.MeshStandardMaterial({ color: 0xeceef0, roughness: 0.7 }),
+  mesh: () => perforated(new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.62 }), 2.4, 0.2, 0.18),
+  fabric: () => perforated(new THREE.MeshStandardMaterial({ color: 0x45494f, roughness: 0.95 }), 1.6, 0.3, 0.55),
+  chrome: () => new THREE.MeshPhysicalMaterial({ color: 0xdfe3e7, metalness: 0.55, roughness: 0.22, clearcoat: 0.8, clearcoatRoughness: 0.1 }),
   inner: () => new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.8 }),
 };
 

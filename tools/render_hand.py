@@ -17,6 +17,7 @@ from mechanical.anthropometry import FINGERS  # noqa: E402
 from mechanical.cad.forearm import ForearmParams, _loft, _x_back, forearm_parts  # noqa: E402
 from mechanical.cad.hand import Grip, PalmParams  # noqa: E402
 from mechanical.cad.shell import dressed  # noqa: E402
+from mechanical.cad.style_v2 import dressed_v2, forearm_v2, material_v2  # noqa: E402
 from mechanical.cad.wrist import WristParams, rotor, stator  # noqa: E402
 from mechanical.hand_layout import best_pinch  # noqa: E402
 
@@ -61,6 +62,11 @@ def views(pp: PalmParams) -> dict:
         "arm_back": (relaxed, (0.15, 0.45 * m, 1.0), (-1, 0, 0), True),
         "arm_radial": (relaxed, (0.1, 1.0 * m, 0.4), (-1, 0, 0), True),
         "arm_ulnar": (relaxed, (0.1, -1.0 * m, 0.4), (-1, 0, 0), True),
+        # v0.2 look (style_v2), same cameras
+        "v2_arm_back": (relaxed, (0.15, 0.45 * m, 1.0), (-1, 0, 0), "v2"),
+        "v2_arm_radial": (relaxed, (0.25, 1.0 * m, 0.55), (-1, 0, 0), "v2"),
+        "v2_arm_ulnar": (relaxed, (0.1, -1.0 * m, 0.4), (-1, 0, 0), "v2"),
+        "v2_hand_palm": (relaxed, (-0.3, 0.45 * m, -1.0), (1, 0, 0), "v2hand"),
     }
 
 
@@ -84,14 +90,19 @@ def main(out_dir: str = "mechanical/exports/shell", only: str = "") -> None:
     wp = WristParams()
     with tempfile.TemporaryDirectory() as tmp:
         scene_files = []
-        arm = None
+        arm = arm2 = None
         for name, (grip, view, up, with_arm) in views(pp).items():
             if only and not name.startswith(only):
                 continue
-            parts = dressed(pp, grip)
-            if with_arm:
+            v2 = isinstance(with_arm, str)
+            pick = material_v2 if v2 else material
+            parts = dressed_v2(pp, grip) if v2 else dressed(pp, grip)
+            if with_arm is True:
                 arm = arm or forearm_scene()
                 parts.update(arm)
+            elif with_arm == "v2":
+                arm2 = arm2 or forearm_v2()
+                parts.update(arm2)
             parts["wrist_rotor"] = rotor(wp)
             parts["wrist_stator"] = stator(wp)
             items = []
@@ -99,8 +110,9 @@ def main(out_dir: str = "mechanical/exports/shell", only: str = "") -> None:
                 if pname in HIDDEN:
                     continue
                 pos, idx = mesh(part)
-                items.append({"name": pname, "material": material(pname), "positions": pos, "indices": idx})
+                items.append({"name": pname, "material": pick(pname), "positions": pos, "indices": idx})
             path = Path(tmp) / f"{name}.json"
+            with_arm = with_arm in (True, "v2")
             size = (1000, 1400) if with_arm else (1200, 1200)
             spec = {"width": size[0], "height": size[1], "view": view, "up": up, "parts": items}
             if with_arm:
