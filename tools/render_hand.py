@@ -67,6 +67,10 @@ def views(pp: PalmParams) -> dict:
         "v2_arm_radial": (relaxed, (0.25, 1.0 * m, 0.55), (-1, 0, 0), "v2"),
         "v2_arm_ulnar": (relaxed, (0.1, -1.0 * m, 0.4), (-1, 0, 0), "v2"),
         "v2_hand_palm": (relaxed, (-0.3, 0.45 * m, -1.0), (1, 0, 0), "v2hand"),
+        # v0.3: same parts in the graphite palette of brand concept v3 (docs/15)
+        "v3_arm_radial": (relaxed, (0.25, 1.0 * m, 0.55), (-1, 0, 0), "v2"),
+        "v3_arm_back": (relaxed, (0.15, 0.45 * m, 1.0), (-1, 0, 0), "v2"),
+        "v3_hand_palm": (relaxed, (-0.3, 0.45 * m, -1.0), (1, 0, 0), "v2hand"),
     }
 
 
@@ -94,7 +98,7 @@ def main(out_dir: str = "mechanical/exports/shell", only: str = "") -> None:
         for name, (grip, view, up, with_arm) in views(pp).items():
             if only and not name.startswith(only):
                 continue
-            v2 = isinstance(with_arm, str)
+            v2 = isinstance(with_arm, str)  # v2 and v3 views use the style_v2 parts
             pick = material_v2 if v2 else material
             parts = dressed_v2(pp, grip) if v2 else dressed(pp, grip)
             if with_arm is True:
@@ -117,6 +121,8 @@ def main(out_dir: str = "mechanical/exports/shell", only: str = "") -> None:
             spec = {"width": size[0], "height": size[1], "view": view, "up": up, "parts": items}
             if with_arm:
                 spec["zoom"] = 1.0
+            if name.startswith("v3_"):
+                spec["palette"] = "graphite"
             path.write_text(json.dumps(spec))
             scene_files.append(str(path))
         subprocess.run(["node", str(ROOT / "tools/render/render.mjs"), str(out), *scene_files], check=True)

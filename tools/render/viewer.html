@@ -69,6 +69,22 @@ const MATERIALS = {
   inner: () => new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.8 }),
 };
 
+// "graphite" palette (brand concept v3, docs/15): slate panels, carbon-look metal, dark background
+if (scene.palette === "graphite") {
+  Object.assign(MATERIALS, {
+    shell: () => new THREE.MeshPhysicalMaterial({ color: 0x59606a, roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.4 }),
+    mesh: () => new THREE.MeshPhysicalMaterial({ color: 0x3a3f46, roughness: 0.55, clearcoat: 0.2 }),
+    pad: () => new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.8 }),
+    chrome: () => perforated(new THREE.MeshPhysicalMaterial({ color: 0x2c2f33, metalness: 0.3, roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.15 }), 1.2, 0.32, 0.6),
+    ring: () => new THREE.MeshStandardMaterial({ color: 0x8a9098, roughness: 0.35, metalness: 0.6 }),
+    fabric: () => perforated(new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: 0.9 }), 1.6, 0.3, 0.5),
+  });
+  const dark = g.createLinearGradient(0, 0, 0, 512);
+  dark.addColorStop(0, "#3a3c40"); dark.addColorStop(1, "#1f2023");
+  g.fillStyle = dark; g.fillRect(0, 0, 2, 512);
+  world.background.needsUpdate = true;
+}
+
 const group = new THREE.Group();
 for (const part of scene.parts) {
   let geo = new THREE.BufferGeometry();
