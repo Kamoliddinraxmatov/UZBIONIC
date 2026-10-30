@@ -102,7 +102,7 @@ def palm(pp: PalmParams = PalmParams()) -> cq.Workplane:
     for f in FINGERS:
         fp = pp.finger_params(f)
         m = L.mcp(f)
-        back = m[0] - front + w + 1.0
+        back = m[0] - front + w  # flush with the inner face of the front wall
         body = body.union(fork_block(fp, back).translate(tuple(m)))
         # tendon holes from the fork through the front wall into the cavity
         for z in (-fp.height / 2 + fp.tendon_offset, fp.height / 2 - fp.tendon_offset):
@@ -157,8 +157,9 @@ def palm_cover(pp: PalmParams = PalmParams()) -> cq.Workplane:
     w, c = pp.wall, pp.clearance
     plate = cq.Workplane("XY").box(pp.front, L.palm_breadth, w, centered=(False, True, False))
     plate = plate.edges("|Z").fillet(pp.corner_radius)
+    # locating lips along the two long sides only, so the front and back rows of motors have room
     lip = cq.Workplane("XY").box(pp.front - 2 * w - 2 * c, L.palm_breadth - 2 * w - 2 * c, w, centered=(False, True, False))
-    lip = lip.cut(cq.Workplane("XY").box(pp.front - 4 * w, L.palm_breadth - 4 * w, w, centered=(False, True, False)).translate((w, 0, 0)))
+    lip = lip.cut(cq.Workplane("XY").box(pp.front, L.palm_breadth - 4 * w, w, centered=(False, True, False)).translate((-w, 0, 0)))
     cover = plate.translate((0, 0, L.palm_thickness / 2)).union(lip.translate((w + c, 0, L.palm_thickness / 2 - w)))
     # keep the thumb hub area clear
     x0, x1 = _hub_x_range(pp)
