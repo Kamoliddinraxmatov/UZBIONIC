@@ -155,3 +155,28 @@ def assembled(p: FingerParams = FingerParams(), angles_deg: tuple[float, ...] = 
         x += p.lengths[i] * math.cos(math.radians(total))
         z -= p.lengths[i] * math.sin(math.radians(total))
     return parts
+
+
+def fork_block(p: FingerParams, back: float) -> cq.Workplane:
+    """A parent block that receives a phalanx tongue: it runs from x=-back to a rounded knuckle with
+    its pin at the origin, with the same slot, extension-stop bridge, pin hole and tendon channels as a
+    phalanx fork. Used for the palm knuckles and the thumb metacarpal."""
+    w, h, c = p.width, p.height, p.clearance
+    if back < p.slot_depth + 1.0:
+        raise ValueError(f"fork block needs at least {p.slot_depth + 1.0:.1f} mm behind the pin, got {back}")
+    body = cq.Workplane("XY").box(back, w, h, centered=(False, True, True)).translate((-back, 0, 0))
+    body = body.union(cq.Workplane("XZ").circle(h / 2).extrude(w / 2, both=True))
+    slot = cq.Workplane("XY").box(p.slot_depth + h, p.tongue_width + 2 * c, h + 2, centered=(False, True, True))
+    body = body.cut(slot.translate((-p.slot_depth, 0, 0)))
+    x_end = -(h / 2 + c)
+    bridge = cq.Workplane("XY").box(x_end + p.slot_depth, w, p.stop_thickness, centered=(False, True, False))
+    body = body.union(bridge.translate((-p.slot_depth, 0, -h / 2)))
+    try:
+        body = body.edges("|Y").fillet(p.fillet)
+    except Exception:  # see phalanx()
+        pass
+    body = body.cut(cq.Workplane("XZ").circle(p.pin_diameter / 2 + c / 2).extrude(w, both=True))
+    for z in (-h / 2 + p.tendon_offset, h / 2 - p.tendon_offset):
+        chan = cq.Workplane("YZ").center(0, z).circle(p.tendon_diameter / 2).extrude(back + h)
+        body = body.cut(chan.translate((-back - 1, 0, 0)))
+    return body
