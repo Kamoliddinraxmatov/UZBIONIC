@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#c9ccd0;overflow:hidden}</style>
+<script type="importmap">
+{"imports": {"three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/"}}
+</script>
+</head>
+<body>
+<script type="module">
+// Renders scene.json (written by render_hand.py) for one view, then sets window.done = true.
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { toCreasedNormals, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+
+const params = new URLSearchParams(location.search);
+const scene = await (await fetch(params.get("scene"))).json();
+const W = scene.width, H = scene.height;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const world = new THREE.Scene();
+const bg = document.createElement("canvas");
+bg.width = 2; bg.height = 512;
+const g = bg.getContext("2d");
+const grad = g.createLinearGradient(0, 0, 0, 512);
+grad.addColorStop(0, "#e6e8eb"); grad.addColorStop(1, "#a9adb3");
+g.fillStyle = grad; g.fillRect(0, 0, 2, 512);
+world.background = new THREE.CanvasTexture(bg);
+const pmrem = new THREE.PMREMGenerator(renderer);
+world.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// Surface-only perforation: a staggered dot pattern from the object-space position, projected on the
+// plane facing the surface normal. pitch and radius in mm; dots are darkened to `dark` of the colour.
+function perforated(mat, pitch, radius, dark) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vObjPos; varying vec3 vObjN;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvObjPos = position; vObjN = normal;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vObjPos; varying vec3 vObjN;")
+      .replace("#include <color_fragment>", `#include <color_fragment>
+        vec3 an = abs(normalize(vObjN));
+        vec2 uv = (an.z >= an.y && an.z >= an.x) ? vObjPos.xy : ((an.y >= an.x) ? vObjPos.xz : vObjPos.yz);
+        uv /= ${pitch.toFixed(3)};
+        uv.x += 0.5 * mod(floor(uv.y), 2.0);
+        float d = length(fract(uv) - 0.5) * ${pitch.toFixed(3)};
+        float hole = 1.0 - smoothstep(${(radius * pitch * 0.9).toFixed(3)}, ${(radius * pitch * 1.25).toFixed(3)}, d);
+        diffuseColor.rgb *= mix(1.0, ${dark.toFixed(3)}, hole);`);
+  };
+  return mat;
+}
+
+const MATERIALS = {
+  shell: () => new THREE.MeshPhysicalMaterial({ color: 0xf4f5f6, roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.25 }),
+  pad: () => new THREE.MeshStandardMaterial({ color: 0x8e9399, roughness: 0.85 }),
+  joint: () => new THREE.MeshStandardMaterial({ color: 0x55595f, roughness: 0.3, metalness: 0.7 }),
+  ring: () => new THREE.MeshStandardMaterial({ color: 0x7d8288, roughness: 0.5, metalness: 0.3 }),
+  mesh: () => perforated(new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.62 }), 2.4, 0.2, 0.18),
+  fabric: () => perforated(new THREE.MeshStandardMaterial({ color: 0x45494f, roughness: 0.95 }), 1.6, 0.3, 0.55),
+  chrome: () => new THREE.MeshPhysicalMaterial({ color: 0xdfe3e7, metalness: 0.55, roughness: 0.22, clearcoat: 0.8, clearcoatRoughness: 0.1 }),
+  inner: () => new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.8 }),
+};
+
+// "graphite" palette (brand concept v3, docs/15): slate panels, carbon-look metal, dark background
+if (scene.palette === "graphite") {
+  Object.assign(MATERIALS, {
+    shell: () => new THREE.MeshPhysicalMaterial({ color: 0x59606a, roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.4 }),
+    mesh: () => new THREE.MeshPhysicalMaterial({ color: 0x3a3f46, roughness: 0.55, clearcoat: 0.2 }),
+    pad: () => new THREE.MeshStandardMaterial({ color: 0x24272b, roughness: 0.8 }),
+    chrome: () => perforated(new THREE.MeshPhysicalMaterial({ color: 0x2c2f33, metalness: 0.3, roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.15 }), 1.2, 0.32, 0.6),
+    ring: () => new THREE.MeshStandardMaterial({ color: 0x8a9098, roughness: 0.35, metalness: 0.6 }),
+    fabric: () => perforated(new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: 0.9 }), 1.6, 0.3, 0.5),
+  });
+  const dark = g.createLinearGradient(0, 0, 0, 512);
+  dark.addColorStop(0, "#3a3c40"); dark.addColorStop(1, "#1f2023");
+  g.fillStyle = dark; g.fillRect(0, 0, 2, 512);
+  world.background.needsUpdate = true;
+}
+
+const group = new THREE.Group();
+for (const part of scene.parts) {
+  let geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(part.positions, 3));
+  geo.setIndex(part.indices);
+  geo = mergeVertices(geo, 1e-4);
+  geo = toCreasedNormals(geo, Math.PI / 5);
+  const mesh = new THREE.Mesh(geo, MATERIALS[part.material]());
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  group.add(mesh);
+}
+// CAD frame (Z up) -> three.js frame (Y up)
+group.rotation.x = -Math.PI / 2;
+world.add(group);
+
+const box = new THREE.Box3().setFromObject(group);
+const centre = box.getCenter(new THREE.Vector3());
+const radius = box.getSize(new THREE.Vector3()).length() / 2;
+
+const v = scene.view; // camera direction in CAD coordinates (from the target towards the camera)
+const dir = new THREE.Vector3(v[0], v[2], -v[1]).normalize();
+const up = new THREE.Vector3(scene.up[0], scene.up[2], -scene.up[1]).normalize();
+const side = new THREE.Vector3().crossVectors(dir, up).normalize();
+
+// key light above-left of the camera, soft fill from the other side, rim light from behind
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.copy(centre).addScaledVector(dir, radius * 3).addScaledVector(up, radius * 2.5).addScaledVector(side, -radius * 2);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.0005;
+const s = radius * 1.5;
+Object.assign(key.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: radius * 12 });
+key.target.position.copy(centre);
+const fill = new THREE.DirectionalLight(0xffffff, 0.7);
+fill.position.copy(centre).addScaledVector(dir, radius * 3).addScaledVector(side, radius * 3);
+const rim = new THREE.DirectionalLight(0xffffff, 0.8);
+rim.position.copy(centre).addScaledVector(dir, -radius * 3).addScaledVector(up, radius * 2);
+world.add(key, key.target, fill, rim);
+world.add(new THREE.HemisphereLight(0xffffff, 0xb0b4ba, 0.35));
+
+const camera = new THREE.PerspectiveCamera(28, W / H, 1, radius * 20);
+camera.position.copy(centre).addScaledVector(dir, radius / Math.sin(THREE.MathUtils.degToRad(14)) * (scene.zoom ?? 0.8));
+camera.up.set(scene.up[0], scene.up[2], -scene.up[1]);
+camera.lookAt(centre);
+
+renderer.render(world, camera);
+window.done = true;
+</script>
+</body>
+</html>

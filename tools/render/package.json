@@ -1,0 +1,9 @@
+{
+  "name": "uzbionic-render",
+  "private": true,
+  "description": "Offline three.js renderer for UZBIONIC CAD previews (headless Chromium via Playwright)",
+  "type": "module",
+  "dependencies": {
+    "three": "0.160.0"
+  }
+}

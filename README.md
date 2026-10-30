@@ -29,6 +29,14 @@ pytest
 python tools/demo_pipeline.py          # writes demo_pipeline.png
 ```
 
+## CAD (our own design)
+
+```bash
+pip install -r requirements-cad.txt
+python mechanical/cad/export_finger.py   # one finger, placeholder sizes
+python mechanical/cad/export_hand.py     # full hand + wrist rotator on standard sizes (docs/10-hand-cad.md)
+```
+
 ## Rules
 
 - No invented hardware specs, prices, clinical evidence or regulatory approvals. Unknown = `TBD`.

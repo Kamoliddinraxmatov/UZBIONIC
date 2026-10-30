@@ -46,3 +46,23 @@ def test_pin_holes_go_through(parts):
 def test_too_short_phalanx_rejected():
     with pytest.raises(ValueError):
         finger(FingerParams(lengths=(42.0, 12.0, 22.0)))
+
+
+def test_cover_mount_holes_stay_in_the_body_and_miss_the_tendon():
+    """Each phalanx has two M2 pilot holes for the outer cover, off the return-tendon line and in solid
+    material (cutting them removes exactly their own volume)."""
+    import math
+
+    from mechanical.cad.finger import _mount_holes, mount_points, phalanx
+
+    p = FingerParams()
+    for i in range(len(p.lengths)):
+        pts = mount_points(p, i)
+        assert len(pts) == 2
+        for _, y, z in pts:
+            assert abs(y) - p.mount_pilot_diameter / 2 > p.tendon_diameter / 2 + 0.5
+            assert z == pytest.approx(p.height / 2)
+        body = phalanx(p, i)
+        whole = body.union(_mount_holes(p, i).intersect(cq.Workplane("XY").box(500, 500, p.height, centered=True)))
+        hole_volume = 2 * math.pi * (p.mount_pilot_diameter / 2) ** 2 * p.mount_depth
+        assert whole.val().Volume() - body.val().Volume() == pytest.approx(hole_volume, rel=0.05)

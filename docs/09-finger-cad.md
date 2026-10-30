@@ -28,3 +28,14 @@ Drawn from scratch for UZBIONIC (decision D-14); other open projects were used o
 - Pin material (2 mm steel pin or filament), tendon line and elastic cord: open, part of the BOM.
 - Strength, friction and print fit are not verified until a test print.
 - Thumb (different joints and rotation), palm, wrist rotator and socket: next steps.
+
+## Cover mounting (2026-10-30)
+The owner's visual design is the outer cover. The skeleton stays hidden inside it. Each cover piece is
+printed separately and screwed to its own phalanx, so it moves with that phalanx.
+
+Each phalanx has **two blind pilot holes** on its back: Ø1.6 mm, 4.5 mm deep, for M2 self-tapping
+screws. They sit off the centre line (±0.28 × width), so they miss the return tendon, and diagonally on
+the straight body, clear of the tongue and the fork slot. `finger.mount_points(params, index)` gives
+their positions in the phalanx frame. A cover designed around the skeleton puts its screw bosses at
+those points. Covers keep about 1 mm of free gap at each joint. Clearances for covers are checked as in
+`docs/12-outer-shell.md`.
