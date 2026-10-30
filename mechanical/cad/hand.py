@@ -44,6 +44,7 @@ class PalmParams:
     axle_diameter: float = 4.0  # hollow axle: the thumb flexor tendon runs through it
     detent_diameter: float = 2.0
     detent_radius: float = 4.8  # from the axle centre
+    thumb_cover_allowance: float = 1.6  # room for the outer shell sleeve over the thumb arm (mechanical.cad.shell)
     # wrist interface (must match mechanical.cad.wrist.WristParams)
     bolt_circle: float = 36.0
     bolt_diameter: float = 3.2  # clearance for M3 screws
@@ -207,9 +208,10 @@ def _rotate_thumb(part: cq.Workplane, L: HandLayout, rotation_deg: float) -> cq.
 def thumb_sweep(pp: PalmParams, step_deg: float = 6.0) -> cq.Workplane:
     """Space the thumb metacarpal (plus clearance) sweeps between the lateral and opposed positions."""
     angles = np.arange(-step_deg, pp.layout.thumb_opposed_deg + step_deg + 1e-9, step_deg)
-    sweep = thumb_metacarpal(pp, float(angles[0]), grow=pp.clearance * 2)
+    grow = pp.clearance * 2 + pp.thumb_cover_allowance
+    sweep = thumb_metacarpal(pp, float(angles[0]), grow=grow)
     for a in angles[1:]:
-        sweep = sweep.union(thumb_metacarpal(pp, float(a), grow=pp.clearance * 2))
+        sweep = sweep.union(thumb_metacarpal(pp, float(a), grow=grow))
     return sweep
 
 

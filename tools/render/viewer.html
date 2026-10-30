@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>html,body{margin:0;background:#c9ccd0;overflow:hidden}</style>
+<script type="importmap">
+{"imports": {"three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/"}}
+</script>
+</head>
+<body>
+<script type="module">
+// Renders scene.json (written by render_hand.py) for one view, then sets window.done = true.
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { toCreasedNormals, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+
+const params = new URLSearchParams(location.search);
+const scene = await (await fetch(params.get("scene"))).json();
+const W = scene.width, H = scene.height;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const world = new THREE.Scene();
+const bg = document.createElement("canvas");
+bg.width = 2; bg.height = 512;
+const g = bg.getContext("2d");
+const grad = g.createLinearGradient(0, 0, 0, 512);
+grad.addColorStop(0, "#e6e8eb"); grad.addColorStop(1, "#a9adb3");
+g.fillStyle = grad; g.fillRect(0, 0, 2, 512);
+world.background = new THREE.CanvasTexture(bg);
+const pmrem = new THREE.PMREMGenerator(renderer);
+world.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const MATERIALS = {
+  shell: () => new THREE.MeshPhysicalMaterial({ color: 0xf4f5f6, roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.25 }),
+  pad: () => new THREE.MeshStandardMaterial({ color: 0x8e9399, roughness: 0.85 }),
+  joint: () => new THREE.MeshStandardMaterial({ color: 0x55595f, roughness: 0.3, metalness: 0.7 }),
+  ring: () => new THREE.MeshStandardMaterial({ color: 0x7d8288, roughness: 0.5, metalness: 0.3 }),
+  inner: () => new THREE.MeshStandardMaterial({ color: 0xb8bdc2, roughness: 0.6 }),
+};
+
+const group = new THREE.Group();
+for (const part of scene.parts) {
+  let geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(part.positions, 3));
+  geo.setIndex(part.indices);
+  geo = mergeVertices(geo, 1e-4);
+  geo = toCreasedNormals(geo, Math.PI / 5);
+  const mesh = new THREE.Mesh(geo, MATERIALS[part.material]());
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  group.add(mesh);
+}
+// CAD frame (Z up) -> three.js frame (Y up)
+group.rotation.x = -Math.PI / 2;
+world.add(group);
+
+const box = new THREE.Box3().setFromObject(group);
+const centre = box.getCenter(new THREE.Vector3());
+const radius = box.getSize(new THREE.Vector3()).length() / 2;
+
+const v = scene.view; // camera direction in CAD coordinates (from the target towards the camera)
+const dir = new THREE.Vector3(v[0], v[2], -v[1]).normalize();
+const up = new THREE.Vector3(scene.up[0], scene.up[2], -scene.up[1]).normalize();
+const side = new THREE.Vector3().crossVectors(dir, up).normalize();
+
+// key light above-left of the camera, soft fill from the other side, rim light from behind
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.copy(centre).addScaledVector(dir, radius * 3).addScaledVector(up, radius * 2.5).addScaledVector(side, -radius * 2);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.0005;
+const s = radius * 1.5;
+Object.assign(key.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: radius * 12 });
+key.target.position.copy(centre);
+const fill = new THREE.DirectionalLight(0xffffff, 0.7);
+fill.position.copy(centre).addScaledVector(dir, radius * 3).addScaledVector(side, radius * 3);
+const rim = new THREE.DirectionalLight(0xffffff, 0.8);
+rim.position.copy(centre).addScaledVector(dir, -radius * 3).addScaledVector(up, radius * 2);
+world.add(key, key.target, fill, rim);
+world.add(new THREE.HemisphereLight(0xffffff, 0xb0b4ba, 0.35));
+
+const camera = new THREE.PerspectiveCamera(28, W / H, 1, radius * 20);
+camera.position.copy(centre).addScaledVector(dir, radius / Math.sin(THREE.MathUtils.degToRad(14)) * (scene.zoom ?? 0.8));
+camera.up.set(scene.up[0], scene.up[2], -scene.up[1]);
+camera.lookAt(centre);
+
+renderer.render(world, camera);
+window.done = true;
+</script>
+</body>
+</html>
