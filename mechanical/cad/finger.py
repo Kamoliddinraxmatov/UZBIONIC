@@ -37,6 +37,11 @@ class FingerParams:
     stop_thickness: float = 2.0  # palm-side bridge in the fork and the matching lip on the tongue
     stop_lip_length: float = 2.0
     names: tuple[str, str, str] = field(default=("proximal", "middle", "distal"))
+    # cover mounting (2026-10-30): two blind pilot holes on the back of each phalanx for M2 self-tapping
+    # screws, so the outer cover (the owner's visual design) screws onto the skeleton
+    mount_pilot_diameter: float = 1.6
+    mount_depth: float = 4.5
+    mount_offset_ratio: float = 0.28  # hole distance from the centre line, as a fraction of width
 
     @property
     def tongue_width(self) -> float:
@@ -136,7 +141,32 @@ def phalanx(p: FingerParams, index: int) -> cq.Workplane:
         x_anchor = L - h / 2
         body = body.cut(cq.Workplane("XY").center(x_anchor, 0).circle(p.tendon_diameter).extrude(h, both=True))
 
-    return body
+    return body.cut(_mount_holes(p, index))
+
+
+def mount_points(p: FingerParams, index: int) -> list[tuple[float, float, float]]:
+    """Cover screw points on the back of phalanx `index` (phalanx frame; z is the back surface).
+
+    Two holes, set diagonally and off the centre line so they miss the return-tendon channel. They sit
+    on the straight body, clear of the tongue and of the fork slot. A cover designed around the skeleton
+    puts its screw bosses here."""
+    L, h = p.lengths[index], p.height
+    has_tongue = index > 0 or p.base_tongue
+    a = (p.tongue_length if has_tongue else 0.0) + 2.5
+    b = (L - h / 2 - 1.5) if index == len(p.lengths) - 1 else (L - p.slot_depth - 2.5)
+    off = p.width * p.mount_offset_ratio
+    if b - a < 3.0:  # short body: both holes side by side in the middle
+        xm = (a + b) / 2
+        return [(xm, off, h / 2), (xm, -off, h / 2)]
+    return [(a + (b - a) * 0.2, off, h / 2), (a + (b - a) * 0.8, -off, h / 2)]
+
+
+def _mount_holes(p: FingerParams, index: int) -> cq.Workplane | None:
+    holes = None
+    for x, y, z in mount_points(p, index):
+        hole = cq.Workplane("XY").circle(p.mount_pilot_diameter / 2).extrude(p.mount_depth + 1).translate((x, y, z - p.mount_depth))
+        holes = hole if holes is None else holes.union(hole)
+    return holes
 
 
 def finger(p: FingerParams = FingerParams()) -> list[cq.Workplane]:
@@ -155,3 +185,28 @@ def assembled(p: FingerParams = FingerParams(), angles_deg: tuple[float, ...] = 
         x += p.lengths[i] * math.cos(math.radians(total))
         z -= p.lengths[i] * math.sin(math.radians(total))
     return parts
+
+
+def fork_block(p: FingerParams, back: float) -> cq.Workplane:
+    """A parent block that receives a phalanx tongue: it runs from x=-back to a rounded knuckle with
+    its pin at the origin, with the same slot, extension-stop bridge, pin hole and tendon channels as a
+    phalanx fork. Used for the palm knuckles and the thumb metacarpal."""
+    w, h, c = p.width, p.height, p.clearance
+    if back < p.slot_depth + 1.0:
+        raise ValueError(f"fork block needs at least {p.slot_depth + 1.0:.1f} mm behind the pin, got {back}")
+    body = cq.Workplane("XY").box(back, w, h, centered=(False, True, True)).translate((-back, 0, 0))
+    body = body.union(cq.Workplane("XZ").circle(h / 2).extrude(w / 2, both=True))
+    slot = cq.Workplane("XY").box(p.slot_depth + h, p.tongue_width + 2 * c, h + 2, centered=(False, True, True))
+    body = body.cut(slot.translate((-p.slot_depth, 0, 0)))
+    x_end = -(h / 2 + c)
+    bridge = cq.Workplane("XY").box(x_end + p.slot_depth, w, p.stop_thickness, centered=(False, True, False))
+    body = body.union(bridge.translate((-p.slot_depth, 0, -h / 2)))
+    try:
+        body = body.edges("|Y").fillet(p.fillet)
+    except Exception:  # see phalanx()
+        pass
+    body = body.cut(cq.Workplane("XZ").circle(p.pin_diameter / 2 + c / 2).extrude(w, both=True))
+    for z in (-h / 2 + p.tendon_offset, h / 2 - p.tendon_offset):
+        chan = cq.Workplane("YZ").center(0, z).circle(p.tendon_diameter / 2).extrude(back + h)
+        body = body.cut(chan.translate((-back - 1, 0, 0)))
+    return body
